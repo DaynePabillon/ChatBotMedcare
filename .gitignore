@@ -1,0 +1,15 @@
+# Environment Variables
+.env
+
+# Media & Generated Reports
+/medcare_logo.png
+/wireframe.png
+/Progress_Report.md
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Streamlit logs (if any)
+.streamlit/credentials.toml
