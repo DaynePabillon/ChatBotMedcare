@@ -6,8 +6,15 @@ MedCare Bot
 
 import os
 import streamlit as st
+import pandas as pd
+from datetime import datetime
 from dotenv import load_dotenv
 from openai import OpenAI
+import re
+import database_manager as db
+
+# Initialize the database schema on startup
+db.init_db()
 
 # Load environment variables from .env file
 load_dotenv()
@@ -51,7 +58,7 @@ st.markdown(
 /* ── Hide default Streamlit branding ── */
 #MainMenu { visibility: hidden; }
 footer { visibility: hidden; }
-header { visibility: hidden; }
+/* header { visibility: hidden; } */ /* Removed to keep sidebar toggle visible */
 
 /* ── Main gradient header ── */
 .main-header {
@@ -63,7 +70,7 @@ header { visibility: hidden; }
     position: relative;
     overflow: hidden;
 }
-.main-header::before {
+.main-header ::before {
     content: '';
     position: absolute;
     top: -50%;
@@ -209,18 +216,63 @@ header { visibility: hidden; }
     box-shadow: 0 0 0 2px rgba(15, 166, 142, 0.15) !important;
 }
 
-/* ── Appointment card ── */
+/* ── Enhanced Appointment Card ── */
 .appointment-card {
-    background: linear-gradient(135deg, rgba(15,166,142,0.12), rgba(15,166,142,0.04));
-    border: 1px solid rgba(15,166,142,0.25);
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-left: 4px solid #0fa68e;
     border-radius: 12px;
-    padding: 1rem;
-    margin: 0.5rem 0;
+    padding: 1.25rem;
+    margin-bottom: 1rem;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    position: relative;
+    overflow: hidden;
 }
-.appointment-card h4 {
-    color: #0fa68e;
-    margin: 0 0 0.5rem 0;
+.appointment-card:hover {
+    background: rgba(255, 255, 255, 0.05);
+    border-color: rgba(15, 166, 142, 0.4);
+    transform: translateY(-2px);
+    box-shadow: 0 10px 20px rgba(0,0,0,0.2);
+}
+.appointment-card .card-id {
+    position: absolute;
+    top: 1rem;
+    right: 1.25rem;
+    font-size: 0.7rem;
+    color: rgba(224, 230, 237, 0.3);
+    font-weight: 600;
+}
+.appointment-card .patient-name {
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: #ffffff;
+    margin-bottom: 0.5rem;
+}
+.appointment-card .detail-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.25rem;
     font-size: 0.85rem;
+    color: rgba(224, 230, 237, 0.7);
+}
+.appointment-card .tag-container {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    margin-top: 0.75rem;
+}
+.appointment-card .tag {
+    background: rgba(15, 166, 142, 0.15);
+    color: #0fa68e;
+    padding: 0.2rem 0.6rem;
+    border-radius: 6px;
+    font-size: 0.75rem;
+    font-weight: 600;
+}
+.appointment-card .time-tag {
+    background: rgba(66, 153, 225, 0.15);
+    color: #4299e1;
 }
 
 /* ── Footer ── */
@@ -238,199 +290,28 @@ header { visibility: hidden; }
 )
 
 # ──────────────────────────────────────────────
-# SESSION STATE INITIALIZATION
+# HELPER FUNCTIONS
 # ──────────────────────────────────────────────
 
-if "messages" not in st.session_state:
-    st.session_state.messages = []
-
-if "appointments" not in st.session_state:
-    st.session_state.appointments = []
-
-
-
-# ──────────────────────────────────────────────
-# SIDEBAR
-# ──────────────────────────────────────────────
-
-with st.sidebar:
-    # Clinic branding
-    st.markdown(f"# 🏥 {CLINIC_NAME}")
-    st.markdown(
-        f'<span class="status-badge status-online">● Online</span>',
-        unsafe_allow_html=True,
-    )
-
-    st.markdown('<hr class="sidebar-divider">', unsafe_allow_html=True)
-
-    # Quick Actions
-    st.markdown("### ⚡ Quick Actions")
-
-    col1, col2 = st.columns(2)
-    with col1:
-        if st.button("📅 Book", use_container_width=True, key="btn_book"):
-            st.session_state.messages.append(
-                {"role": "user", "content": "I want to book an appointment."}
-            )
-            st.rerun()
-    with col2:
-        if st.button("🔄 Reschedule", use_container_width=True, key="btn_resched"):
-            st.session_state.messages.append(
-                {"role": "user", "content": "I want to reschedule my appointment."}
-            )
-            st.rerun()
-
-    col3, col4 = st.columns(2)
-    with col3:
-        if st.button("❌ Cancel", use_container_width=True, key="btn_cancel"):
-            st.session_state.messages.append(
-                {"role": "user", "content": "I want to cancel my appointment."}
-            )
-            st.rerun()
-    with col4:
-        if st.button("🕒 Availability", use_container_width=True, key="btn_avail"):
-            st.session_state.messages.append(
-                {"role": "user", "content": "What doctors are available this week?"}
-            )
-            st.rerun()
-
-    st.markdown('<hr class="sidebar-divider">', unsafe_allow_html=True)
-
-    # Clinic Hours
-    st.markdown("### 🕐 Clinic Hours")
-    for day, hours in CLINIC_HOURS.items():
-        icon = "🟢" if hours != "Closed" else "🔴"
-        st.markdown(
-            f"""<div class="info-card">
-            <div class="info-card-label">{icon} {day}</div>
-            <div class="info-card-value">{hours}</div>
-            </div>""",
-            unsafe_allow_html=True,
-        )
-
-    st.markdown('<hr class="sidebar-divider">', unsafe_allow_html=True)
-
-    # Services
-    st.markdown("### 🩺 Services")
-    services_html = ""
-    for svc in SERVICES:
-        services_html += f'<span class="service-tag">{svc["name"]}</span>'
-    st.markdown(services_html, unsafe_allow_html=True)
-
-    st.markdown('<hr class="sidebar-divider">', unsafe_allow_html=True)
-
-    # Contact Info
-    st.markdown("### 📞 Contact")
-    st.markdown(
-        f"""<div class="info-card">
-        <div class="info-card-label">Phone</div>
-        <div class="info-card-value">{CLINIC_CONTACT['phone']}</div>
+def render_appointment_card(appt):
+    """Render a modern appointment card using HTML."""
+    # Convert date/time objects if needed
+    date_str = appt['date'].strftime('%b %d, %Y') if hasattr(appt['date'], 'strftime') else appt['date']
+    time_str = appt['time'].strftime('%I:%M %p') if hasattr(appt['time'], 'strftime') else appt['time']
+    
+    st.markdown(f"""
+    <div class="appointment-card">
+        <div class="card-id">#{appt['id']}</div>
+        <div class="patient-name">👤 {appt['name']}</div>
+        <div class="detail-row">🩺 <b>Service:</b> {appt['service']}</div>
+        <div class="detail-row">👨‍⚕️ <b>Doctor:</b> {appt['doctor']}</div>
+        <div class="detail-row">📞 <b>Contact:</b> {appt['contact']}</div>
+        <div class="tag-container">
+            <span class="tag">📅 {date_str}</span>
+            <span class="tag time-tag">⏰ {time_str}</span>
         </div>
-        <div class="info-card">
-        <div class="info-card-label">Mobile</div>
-        <div class="info-card-value">{CLINIC_CONTACT['mobile']}</div>
-        </div>
-        <div class="info-card">
-        <div class="info-card-label">Email</div>
-        <div class="info-card-value">{CLINIC_CONTACT['email']}</div>
-        </div>
-        <div class="info-card">
-        <div class="info-card-label">Address</div>
-        <div class="info-card-value">{CLINIC_LOCATION['address']}</div>
-        </div>""",
-        unsafe_allow_html=True,
-    )
-
-    st.markdown('<hr class="sidebar-divider">', unsafe_allow_html=True)
-
-    # Payment Methods
-    st.markdown("### 💳 Payment Methods")
-    payment_html = ""
-    for pm in PAYMENT_METHODS:
-        payment_html += f'<span class="service-tag">{pm}</span>'
-    st.markdown(payment_html, unsafe_allow_html=True)
-
-    st.markdown('<hr class="sidebar-divider">', unsafe_allow_html=True)
-
-    # Insurance
-    st.markdown("### 🛡️ Accepted Insurance / HMO")
-    insurance_html = ""
-    for ins in ACCEPTED_INSURANCE:
-        insurance_html += f'<span class="service-tag">{ins}</span>'
-    st.markdown(insurance_html, unsafe_allow_html=True)
-
-    st.markdown('<hr class="sidebar-divider">', unsafe_allow_html=True)
-
-    # Clear chat
-    if st.button("🗑️ Clear Chat", use_container_width=True, type="secondary"):
-        st.session_state.messages = []
-        st.rerun()
-
-    st.markdown(
-        '<p style="text-align:center; font-size:0.65rem; color:rgba(224,230,237,0.3); margin-top:1rem;">'
-        f"© 2026 {CLINIC_NAME}</p>",
-        unsafe_allow_html=True,
-    )
-
-
-# ──────────────────────────────────────────────
-# MAIN CONTENT AREA
-# ──────────────────────────────────────────────
-
-# Header
-st.markdown(
-    f"""<div class="main-header">
-    <h1>🏥 {CLINIC_NAME}</h1>
-    <p>{CLINIC_TAGLINE} — AI Appointment Assistant</p>
-</div>""",
-    unsafe_allow_html=True,
-)
-
-# Welcome message (if chat is empty)
-if not st.session_state.messages:
-    st.markdown(
-        """
-    <div style="text-align:center; padding: 2rem 1rem;">
-        <p style="font-size:2.5rem; margin-bottom:0.5rem;">👋</p>
-        <h2 style="color:#0fa68e; font-weight:600; margin-bottom:0.5rem;">Welcome! How can I help you today?</h2>
-        <p style="color:rgba(224,230,237,0.6); font-size:0.9rem; max-width: 500px; margin: 0 auto;">
-            I can help you book, reschedule, or cancel appointments, check doctor availability,
-            and answer questions about our clinic services.
-        </p>
     </div>
-    """,
-        unsafe_allow_html=True,
-    )
-
-    # Suggestion chips
-    st.markdown("")
-    cols = st.columns(4)
-    suggestions = [
-        ("📅 Book an appointment", "I want to book an appointment."),
-        ("👨‍⚕️ View doctors", "What doctors are available and what are their specialties?"),
-        ("🏥 Clinic info", "What are your operating hours and where is the clinic located?"),
-        ("💰 Service prices", "What services do you offer and how much do they cost?"),
-    ]
-    for i, (label, prompt) in enumerate(suggestions):
-        with cols[i]:
-            if st.button(label, use_container_width=True, key=f"suggest_{i}"):
-                st.session_state.messages.append({"role": "user", "content": prompt})
-                st.rerun()
-
-
-# ──────────────────────────────────────────────
-# CHAT DISPLAY
-# ──────────────────────────────────────────────
-
-for message in st.session_state.messages:
-    avatar = "🏥" if message["role"] == "assistant" else "👤"
-    with st.chat_message(message["role"], avatar=avatar):
-        st.markdown(message["content"])
-
-
-# ──────────────────────────────────────────────
-# LLM RESPONSE GENERATION
-# ──────────────────────────────────────────────
+    """, unsafe_allow_html=True)
 
 
 def generate_response_groq_stream(messages_history: list):
@@ -565,11 +446,6 @@ def generate_response_fallback(user_message: str) -> str:
         )
 
 
-# ──────────────────────────────────────────────
-# RESPONSE HELPER
-# ──────────────────────────────────────────────
-
-
 def handle_assistant_response(user_msg_content: str):
     """Generate and display an assistant response, then save to session."""
     with st.chat_message("assistant", avatar="🏥"):
@@ -594,23 +470,364 @@ def handle_assistant_response(user_msg_content: str):
             response = generate_response_fallback(user_msg_content)
             st.markdown(response)
 
+    # Process message for display (check for appointment confirmation)
+    if "Appointment Confirmed" in response:
+        try:
+            lines = response.split('\n')
+            appt_info = {}
+            for line in lines:
+                if ':' in line:
+                    key, val = line.split(':', 1)
+                    # Clean markdown, hyphens, and bullet characters from keys
+                    key = re.sub(r'[*_~#\[\]\-•]', '', key).strip().lower()
+                    val = val.strip()
+                    appt_info[key] = val
+            
+            # Map keys to what render_appointment_card expects if possible
+            # Check for variants: 'contact number' or 'contact' or 'phone'
+            if 'contact' not in appt_info:
+                for k in ['contact number', 'phone', 'mobile']:
+                    if k in appt_info:
+                        appt_info['contact'] = appt_info[k]
+                        break
+                
+            required_keys = ['name', 'service', 'doctor', 'date', 'time', 'contact']
+            if all(k in appt_info for k in required_keys):
+                # We have a confirmation!
+                st.success("✨ Appointment Confirmed!")
+                # Create a temporary appt dict for the renderer
+                temp_appt = {
+                    'id': 'CONFIRMED',
+                    'name': appt_info.get('name', 'Patient'),
+                    'service': appt_info.get('service', 'Service'),
+                    'doctor': appt_info.get('doctor', 'Doctor'),
+                    'contact': appt_info.get('contact', 'N/A'),
+                    'date': appt_info.get('date', 'Date'),
+                    'time': appt_info.get('time', 'Time')
+                }
+                render_appointment_card(temp_appt)
+                
+                # --- NEW: SAVE TO DATABASE ---
+                try:
+                    # Check if already saved in session to avoid duplicates during rerun
+                    save_key = f"{temp_appt['name']}-{temp_appt['date']}-{temp_appt['time']}"
+                    if "last_saved_appt" not in st.session_state or st.session_state.last_saved_appt != save_key:
+                        db.add_appointment(
+                            temp_appt['name'], 
+                            temp_appt['contact'], 
+                            temp_appt['service'], 
+                            temp_appt['doctor'], 
+                            temp_appt['date'], 
+                            temp_appt['time']
+                        )
+                        st.session_state.last_saved_appt = save_key
+                        st.toast("✅ Appointment saved to clinic database!")
+                    else:
+                        pass # Already saved this session.
+                except Exception as db_err:
+                    st.error(f"⚠️ Error saving to database: {db_err}")
+                    st.write(f"🔍 DEBUG DB ERROR: {db_err}")
+                
+                # Keep the text below just in case or for copy-pasting
+                st.info("Please save these details for your record.")
+        except Exception:
+            pass # Fallback to normal markdown if parsing fails
+
     st.session_state.messages.append({"role": "assistant", "content": response})
 
 
 # ──────────────────────────────────────────────
-# CHAT INPUT
+# SESSION STATE INITIALIZATION
 # ──────────────────────────────────────────────
 
-# Handle typed messages
-if user_input := st.chat_input("Type your message here... (e.g., 'Book me an appointment')"):
-    st.session_state.messages.append({"role": "user", "content": user_input})
-    with st.chat_message("user", avatar="👤"):
-        st.markdown(user_input)
-    handle_assistant_response(user_input)
+if "messages" not in st.session_state:
+    st.session_state.messages = []
 
-# Handle button-triggered messages (last message is user with no assistant reply)
-elif (
-    st.session_state.messages
-    and st.session_state.messages[-1]["role"] == "user"
-):
-    handle_assistant_response(st.session_state.messages[-1]["content"])
+if "appointments" not in st.session_state:
+    st.session_state.appointments = []
+
+
+
+
+
+
+# ──────────────────────────────────────────────
+# SIDEBAR
+# ──────────────────────────────────────────────
+
+with st.sidebar:
+    # Clinic branding
+    st.markdown(f"# 🏥 {CLINIC_NAME}")
+    st.markdown(
+        f'<span class="status-badge status-online">● Online</span>',
+        unsafe_allow_html=True,
+    )
+
+    st.markdown('<hr class="sidebar-divider">', unsafe_allow_html=True)
+
+    # Quick Actions
+    st.markdown("### ⚡ Quick Actions")
+
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("📅 Book", use_container_width=True, key="btn_book"):
+            st.session_state.messages.append(
+                {"role": "user", "content": "I want to book an appointment."}
+            )
+            st.rerun()
+    with col2:
+        if st.button("🔄 Reschedule", use_container_width=True, key="btn_resched"):
+            st.session_state.messages.append(
+                {"role": "user", "content": "I want to reschedule my appointment."}
+            )
+            st.rerun()
+
+    col3, col4 = st.columns(2)
+    with col3:
+        if st.button("❌ Cancel", use_container_width=True, key="btn_cancel"):
+            st.session_state.messages.append(
+                {"role": "user", "content": "I want to cancel my appointment."}
+            )
+            st.rerun()
+    with col4:
+        if st.button("🕒 Availability", use_container_width=True, key="btn_avail"):
+            st.session_state.messages.append(
+                {"role": "user", "content": "What doctors are available this week?"}
+            )
+            st.rerun()
+
+    st.markdown('<hr class="sidebar-divider">', unsafe_allow_html=True)
+
+    # Clinic Hours
+    st.markdown("### 🕐 Clinic Hours")
+    for day, hours in CLINIC_HOURS.items():
+        icon = "🟢" if hours != "Closed" else "🔴"
+        st.markdown(
+            f"""<div class="info-card">
+            <div class="info-card-label">{icon} {day}</div>
+            <div class="info-card-value">{hours}</div>
+            </div>""",
+            unsafe_allow_html=True,
+        )
+
+    st.markdown('<hr class="sidebar-divider">', unsafe_allow_html=True)
+
+    # Services
+    st.markdown("### 🩺 Services")
+    services_html = ""
+    for svc in SERVICES:
+        services_html += f'<span class="service-tag">{svc["name"]}</span>'
+    st.markdown(services_html, unsafe_allow_html=True)
+
+    st.markdown('<hr class="sidebar-divider">', unsafe_allow_html=True)
+
+    # Contact Info
+    st.markdown("### 📞 Contact")
+    st.markdown(
+        f"""<div class="info-card">
+        <div class="info-card-label">Phone</div>
+        <div class="info-card-value">{CLINIC_CONTACT['phone']}</div>
+        </div>
+        <div class="info-card">
+        <div class="info-card-label">Mobile</div>
+        <div class="info-card-value">{CLINIC_CONTACT['mobile']}</div>
+        </div>
+        <div class="info-card">
+        <div class="info-card-label">Email</div>
+        <div class="info-card-value">{CLINIC_CONTACT['email']}</div>
+        </div>
+        <div class="info-card">
+        <div class="info-card-label">Address</div>
+        <div class="info-card-value">{CLINIC_LOCATION['address']}</div>
+        </div>""",
+        unsafe_allow_html=True,
+    )
+
+    st.markdown('<hr class="sidebar-divider">', unsafe_allow_html=True)
+
+    # Payment Methods
+    st.markdown("### 💳 Payment Methods")
+    payment_html = ""
+    for pm in PAYMENT_METHODS:
+        payment_html += f'<span class="service-tag">{pm}</span>'
+    st.markdown(payment_html, unsafe_allow_html=True)
+
+    st.markdown('<hr class="sidebar-divider">', unsafe_allow_html=True)
+
+    # Insurance
+    st.markdown("### 🛡️ Accepted Insurance / HMO")
+    insurance_html = ""
+    for ins in ACCEPTED_INSURANCE:
+        insurance_html += f'<span class="service-tag">{ins}</span>'
+    st.markdown(insurance_html, unsafe_allow_html=True)
+
+    st.markdown('<hr class="sidebar-divider">', unsafe_allow_html=True)
+
+    # Clear chat
+    if st.button("🗑️ Clear Chat", use_container_width=True, key="btn_clear_chat", type="secondary"):
+        st.session_state.messages = []
+        st.rerun()
+
+    st.markdown(
+        '<p style="text-align:center; font-size:0.65rem; color:rgba(224,230,237,0.3); margin-top:1rem;">'
+        f"© 2026 {CLINIC_NAME}</p>",
+        unsafe_allow_html=True,
+    )
+
+
+# ──────────────────────────────────────────────
+# MAIN CONTENT AREA (TABS)
+# ──────────────────────────────────────────────
+
+tab_chat, tab_form, tab_admin = st.tabs(["💬 Chat Assistant", "📋 Quick Booking Form", "📊 Admin Dashboard"])
+
+with tab_chat:
+
+    # Header
+    st.markdown(
+        f"""<div class="main-header">
+        <h1>🏥 {CLINIC_NAME}</h1>
+        <p>{CLINIC_TAGLINE} — AI Appointment Assistant</p>
+    </div>""",
+        unsafe_allow_html=True,
+    )
+
+    # Welcome message (if chat is empty)
+    if not st.session_state.messages:
+        st.markdown(
+            """
+        <div style="text-align:center; padding: 2rem 1rem;">
+            <p style="font-size:2.5rem; margin-bottom:0.5rem;">👋</p>
+            <h2 style="color:#0fa68e; font-weight:600; margin-bottom:0.5rem;">Welcome! How can I help you today?</h2>
+            <p style="color:rgba(224,230,237,0.6); font-size:0.9rem; max-width: 500px; margin: 0 auto;">
+                I can help you book, reschedule, or cancel appointments, check doctor availability,
+                and answer questions about our clinic services.
+            </p>
+        </div>
+        """,
+            unsafe_allow_html=True,
+        )
+
+        # Suggestion chips
+        st.markdown("")
+        cols = st.columns(4)
+        suggestions = [
+            ("📅 Book an appointment", "I want to book an appointment."),
+            ("👨‍⚕️ View doctors", "What doctors are available and what are their specialties?"),
+            ("🏥 Clinic info", "What are your operating hours and where is the clinic located?"),
+            ("💰 Service prices", "What services do you offer and how much do they cost?"),
+        ]
+        for i, (label, prompt) in enumerate(suggestions):
+            with cols[i]:
+                if st.button(label, use_container_width=True, key=f"suggest_{i}"):
+                    st.session_state.messages.append({"role": "user", "content": prompt})
+                    st.rerun()
+
+
+    # ──────────────────────────────────────────────
+    # CHAT DISPLAY
+    # ──────────────────────────────────────────────
+
+    for message in st.session_state.messages:
+        avatar = "🏥" if message["role"] == "assistant" else "👤"
+        with st.chat_message(message["role"], avatar=avatar):
+            st.markdown(message["content"])
+
+    # ──────────────────────────────────────────────
+    # CHAT INPUT (Now inside tab_chat)
+    # ──────────────────────────────────────────────
+    
+    # Handle button-triggered messages or newly added user messages
+    if (
+        st.session_state.messages
+        and st.session_state.messages[-1]["role"] == "user"
+    ):
+        handle_assistant_response(st.session_state.messages[-1]["content"])
+
+    # Handle typed messages
+    if user_input := st.chat_input("Type your message here... (e.g., 'Book me an appointment')"):
+        st.session_state.messages.append({"role": "user", "content": user_input})
+        st.rerun()
+
+with tab_form:
+    st.markdown("## 📋 Quick Booking Form")
+    st.info("Fill out the form below to book an appointment instantly.")
+    
+    with st.form("booking_form", clear_on_submit=True):
+        f_name = st.text_input("Full Name", placeholder="e.g. Juan De La Cruz")
+        f_contact = st.text_input("Contact Number", placeholder="e.g. 0917 123 4567")
+        
+        col_svc, col_doc = st.columns(2)
+        with col_svc:
+            service_names = [s["name"] for s in SERVICES]
+            f_service = st.selectbox("Select Service", service_names)
+        with col_doc:
+            doctor_names = [d["name"] for d in DOCTORS]
+            f_doctor = st.selectbox("Preferred Doctor", doctor_names)
+            
+        col_date, col_time = st.columns(2)
+        with col_date:
+            f_date = st.date_input("Preferred Date", min_value=datetime.today())
+        with col_time:
+            times = ["08:00 AM", "09:00 AM", "10:00 AM", "11:00 AM", "01:00 PM", "02:00 PM", "03:00 PM", "04:00 PM"]
+            f_time = st.selectbox("Preferred Time", times)
+            
+        submit_btn = st.form_submit_button("Submit Appointment", use_container_width=True)
+        
+        if submit_btn:
+            if not f_name or not f_contact:
+                st.error("Please fill in your name and contact info.")
+            else:
+                try:
+                    db.add_appointment(f_name, f_contact, f_service, f_doctor, f_date, f_time)
+                    st.success(f"✅ Appointment booked for {f_name} on {f_date} at {f_time}!")
+                    st.session_state.messages.append({"role": "assistant", "content": f"✅ **Form Submission Received:** Appointment set for {f_name} ({f_service}) with {f_doctor} on {f_date} at {f_time}."})
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Error saving to database: {e}")
+
+with tab_admin:
+    st.markdown("## 📊 Admin Dashboard")
+    admin_pass = st.text_input("Enter Admin Password", type="password")
+    if admin_pass == "admin123":
+        st.success("Access Granted")
+        
+        # Search and Control Row
+        col_search, col_refresh = st.columns([4, 1])
+        with col_search:
+            search_query = st.text_input("Search Patient Name", placeholder="Enter name to filter...")
+        with col_refresh:
+            st.markdown("<br>", unsafe_allow_html=True)
+            if st.button("🔄 Refresh", use_container_width=True):
+                st.rerun()
+            
+        try:
+            appointments = db.get_all_appointments()
+            if appointments:
+                # Filtering logic
+                if search_query:
+                    appointments = [a for a in appointments if search_query.lower() in a['name'].lower()]
+                
+                if appointments:
+                    st.markdown(f"**Found {len(appointments)} appointments**")
+                    # Grid Layout
+                    cols_per_row = 3
+                    for i in range(0, len(appointments), cols_per_row):
+                        row_cols = st.columns(cols_per_row)
+                        for j, col in enumerate(row_cols):
+                            if i + j < len(appointments):
+                                with col:
+                                    render_appointment_card(appointments[i+j])
+                else:
+                    st.warning(f"No appointments found matching '{search_query}'.")
+            else:
+                st.info("No appointments found in the database.")
+        except Exception as e:
+            st.error(f"Error fetching data: {e}")
+    elif admin_pass:
+        st.error("Incorrect Password")
+    else:
+        st.info("Please enter the admin password to view appointment data.")
+
+
+
