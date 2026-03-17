@@ -19,6 +19,10 @@ db.init_db()
 # Load environment variables from .env file
 load_dotenv()
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
+
+# Fallback to Streamlit Secrets for cloud deployment
+if not GROQ_API_KEY and hasattr(st, "secrets") and "GROQ_API_KEY" in st.secrets:
+    GROQ_API_KEY = st.secrets["GROQ_API_KEY"]
 from clinic_data import (
     CLINIC_NAME,
     CLINIC_TAGLINE,

@@ -3,13 +3,31 @@ import psycopg2
 from psycopg2.extras import RealDictCursor
 from dotenv import load_dotenv
 
+import streamlit as st
+
 # Load environment variables
 load_dotenv()
-DATABASE_URL = os.getenv("DATABASE_URL")
+
+def get_database_url():
+    """Retrieve the database URL from environment variables or Streamlit secrets."""
+    # Try local .env (os.getenv)
+    url = os.getenv("DATABASE_URL")
+    
+    # Try Streamlit Secrets (for cloud deployment)
+    if not url and hasattr(st, "secrets") and "DATABASE_URL" in st.secrets:
+        url = st.secrets["DATABASE_URL"]
+    
+    return url
 
 def get_connection():
     """Establish a connection to the Neon database."""
-    return psycopg2.connect(DATABASE_URL)
+    url = get_database_url()
+    if not url:
+        raise ValueError(
+            "DATABASE_URL not found. Please set it in your .env file (local) "
+            "or in the Streamlit Cloud Secrets dashboard (deployment)."
+        )
+    return psycopg2.connect(url)
 
 def init_db():
     """Initialize the database schema."""
