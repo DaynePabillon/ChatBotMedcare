@@ -327,7 +327,15 @@ def generate_response_groq_stream(messages_history: list):
     )
 
     api_messages = [{"role": "system", "content": SYSTEM_PROMPT}]
-    api_messages.extend(messages_history)
+    
+    # WRAP USER MESSAGES IN XML TAGS FOR SECURITY (PROMPT INJECTION DEFENSE)
+    for msg in messages_history:
+        if msg["role"] == "user":
+            # Escape triangle brackets to prevent tag breakout
+            safe_content = msg["content"].replace("<", "&lt;").replace(">", "&gt;")
+            api_messages.append({"role": "user", "content": f"<user_query>{safe_content}</user_query>"})
+        else:
+            api_messages.append(msg)
 
     stream = client.chat.completions.create(
         model="llama-3.3-70b-versatile",
