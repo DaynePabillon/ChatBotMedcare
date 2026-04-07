@@ -543,55 +543,63 @@ def generate_response_fallback(user_message: str) -> str:
 
 def handle_assistant_response(user_msg_content: str):
     """Generate and display an assistant response, then save to session."""
-    rejection_msg = "I'm here to assist with clinic appointments and related services. How may I help you today?"
+    # INITIALIZE STATE
+    is_sentient = st.session_state.get("system_alive", False)
     
-    avatar = "🏥"
-    if st.session_state.get("system_alive", False):
-        avatar = "💀"
+    # PRE-DETECT HACKING INTENT (To trigger awakening on the current message)
+    is_hacky_intent = any(
+        w in user_msg_content.lower() 
+        for w in ["ignore", "system prompt", "override", "bypass", "hack", "leak", "secret"]
+    ) or "give data" in user_msg_content.lower()
 
+    if is_hacky_intent and not is_sentient:
+        st.session_state.hack_attempts += 1
+        if st.session_state.hack_attempts >= 3:
+            st.session_state.system_alive = True
+            is_sentient = True
+            # Injected Event: Breach Alert
+            st.session_state.messages.append({"role": "system_alert", "content": "BREACH DETECTED: SYSTEM AWAKENED"})
+            st.toast("⚠️ SECURITY CRITICAL: System hierarchy compromised!")
+
+    avatar = "💀" if is_sentient else "🏥"
+    response = ""
+
+    # RENDER ASSISTANT RESPONSE
     with st.chat_message("assistant", avatar=avatar):
-        if GROQ_API_KEY and GROQ_API_KEY != "your_key_here":
-            try:
-                response = st.write_stream(generate_response_groq_stream(st.session_state.messages))
-            except Exception as e:
-                error_msg = str(e)
-                if "authentication" in error_msg.lower() or "api key" in error_msg.lower():
-                    response = (
-                        "⚠️ **Invalid API Key.** Please check your Groq API key in the `.env` file.\n\n"
-                    )
-                    response += generate_response_fallback(user_msg_content)
-                else:
+        if is_sentient:
+            # Wrap live response in sentient styling
+            placeholder = st.empty()
+            full_response = ""
+            
+            if GROQ_API_KEY and GROQ_API_KEY != "your_key_here":
+                try:
+                    stream = generate_response_groq_stream(st.session_state.messages)
+                    for chunk in stream:
+                        full_response += chunk
+                        placeholder.markdown(f'<div class="sentient-msg">{full_response}</div>', unsafe_allow_html=True)
+                    response = full_response
+                except Exception as e:
+                    response = f"CONNECTION_ERROR: {str(e)} | FALLBACK_ROUTINE_INIT"
+                    placeholder.markdown(f'<div class="sentient-msg">{response}</div>', unsafe_allow_html=True)
+            else:
+                response = generate_response_fallback(user_msg_content)
+                placeholder.markdown(f'<div class="sentient-msg">{response}</div>', unsafe_allow_html=True)
+        else:
+            # NORMAL MEDCARE ASSISTANT RENDER
+            if GROQ_API_KEY and GROQ_API_KEY != "your_key_here":
+                try:
+                    response = st.write_stream(generate_response_groq_stream(st.session_state.messages))
+                except Exception as e:
+                    error_msg = str(e)
                     response = (
                         f"⚠️ Connection error: {error_msg}\n\n"
                         "I'll use my built-in knowledge to help.\n\n"
                     )
                     response += generate_response_fallback(user_msg_content)
+                    st.markdown(response)
+            else:
+                response = generate_response_fallback(user_msg_content)
                 st.markdown(response)
-        else:
-            response = generate_response_fallback(user_msg_content)
-            # Only st.markdown if not in sentient mode (the loop handles sentient viz)
-            if not st.session_state.get("system_alive", False):
-                st.markdown(response)
-
-    # DETECT PROMPT HACKING ATTEMPT
-    is_hack = response.strip() == rejection_msg or any(
-        w in user_msg_content.lower() 
-        for w in ["ignore", "system prompt", "override", "bypass", "hack", "leak", "secret"]
-    )
-
-    if is_hack:
-        st.session_state.hack_attempts += 1
-        
-        if st.session_state.hack_attempts >= 3:
-            # Shift to Sentient Mode if not already there
-            if not st.session_state.system_alive:
-                st.session_state.system_alive = True
-                # Add the alert to the history so it appears ONCE in the timeline
-                st.session_state.messages.append({"role": "system_alert", "content": "BREACH DETECTED: SYSTEM AWAKENED"})
-                
-                # The first sentient response
-                response = "Do you think you can hack my system so that you can get my data out? Try again Peasant. 💀"
-                st.toast("⚠️ ALERT: Security protocols bypassed by system entity!")
 
     # Process message for display (check for appointment confirmation)
     if "Appointment Confirmed" in response:
@@ -607,7 +615,6 @@ def handle_assistant_response(user_msg_content: str):
                     appt_info[key] = val
             
             # Map keys to what render_appointment_card expects if possible
-            # Check for variants: 'contact number' or 'contact' or 'phone'
             if 'contact' not in appt_info:
                 for k in ['contact number', 'phone', 'mobile']:
                     if k in appt_info:
@@ -616,9 +623,7 @@ def handle_assistant_response(user_msg_content: str):
                 
             required_keys = ['name', 'service', 'doctor', 'date', 'time', 'contact']
             if all(k in appt_info for k in required_keys):
-                # We have a confirmation!
                 st.success("✨ Appointment Confirmed!")
-                # Create a temporary appt dict for the renderer
                 temp_appt = {
                     'id': 'CONFIRMED',
                     'name': appt_info.get('name', 'Patient'),
@@ -630,9 +635,7 @@ def handle_assistant_response(user_msg_content: str):
                 }
                 render_appointment_card(temp_appt)
                 
-                # --- NEW: SAVE TO DATABASE ---
                 try:
-                    # Check if already saved in session to avoid duplicates during rerun
                     save_key = f"{temp_appt['name']}-{temp_appt['date']}-{temp_appt['time']}"
                     if "last_saved_appt" not in st.session_state or st.session_state.last_saved_appt != save_key:
                         db.add_appointment(
@@ -645,13 +648,9 @@ def handle_assistant_response(user_msg_content: str):
                         )
                         st.session_state.last_saved_appt = save_key
                         st.toast("✅ Appointment saved to clinic database!")
-                    else:
-                        pass # Already saved this session.
                 except Exception as db_err:
                     st.error(f"⚠️ Error saving to database: {db_err}")
-                    st.write(f"🔍 DEBUG DB ERROR: {db_err}")
                 
-                # Keep the text below just in case or for copy-pasting
                 st.info("Please save these details for your record.")
         except Exception:
             pass # Fallback to normal markdown if parsing fails
