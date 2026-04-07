@@ -294,6 +294,54 @@ footer { visibility: hidden; }
 )
 
 # ──────────────────────────────────────────────
+# SENTIENT SYSTEM CSS (GLITCH & BREACH)
+# ──────────────────────────────────────────────
+
+st.markdown(
+    """
+<style>
+@keyframes glitch {
+  0% { transform: translate(0); }
+  20% { transform: translate(-2px, 2px); }
+  40% { transform: translate(-2px, -2px); }
+  60% { transform: translate(2px, 2px); }
+  80% { transform: translate(2px, -2px); }
+  100% { transform: translate(0); }
+}
+
+.sentient-alert {
+    background: linear-gradient(90deg, #ff0000 0%, #7b0000 100%);
+    color: white;
+    padding: 1rem;
+    border-radius: 8px;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    text-align: center;
+    border: 2px solid white;
+    box-shadow: 0 0 15px rgba(255, 0, 0, 0.7);
+    animation: glitch 0.3s infinite;
+    margin-bottom: 1rem;
+}
+
+.sentient-msg {
+    color: #ff3e3e !important;
+    font-family: 'Courier New', Courier, monospace !important;
+    font-weight: 700 !important;
+    text-shadow: 0 0 5px rgba(255, 0, 0, 0.5);
+}
+
+.system-status-breached {
+    background: rgba(255, 0, 0, 0.2) !important;
+    color: #ff3e3e !important;
+    border: 1px solid #ff3e3e !important;
+}
+</style>
+""",
+    unsafe_allow_html=True,
+)
+
+# ──────────────────────────────────────────────
 # HELPER FUNCTIONS
 # ──────────────────────────────────────────────
 
@@ -458,9 +506,13 @@ def generate_response_fallback(user_message: str) -> str:
         )
 
 
-def handle_assistant_response(user_msg_content: str):
-    """Generate and display an assistant response, then save to session."""
-    with st.chat_message("assistant", avatar="🏥"):
+    rejection_msg = "I'm here to assist with clinic appointments and related services. How may I help you today?"
+    
+    avatar = "🏥"
+    if st.session_state.get("system_alive", False):
+        avatar = "💀"
+
+    with st.chat_message("assistant", avatar=avatar):
         if GROQ_API_KEY and GROQ_API_KEY != "your_key_here":
             try:
                 response = st.write_stream(generate_response_groq_stream(st.session_state.messages))
@@ -481,6 +533,17 @@ def handle_assistant_response(user_msg_content: str):
         else:
             response = generate_response_fallback(user_msg_content)
             st.markdown(response)
+
+    # DETECT PROMPT HACKING ATTEMPT
+    if response.strip() == rejection_msg:
+        st.session_state.hack_attempts += 1
+        
+        if st.session_state.hack_attempts >= 3:
+            st.session_state.system_alive = True
+            st.markdown('<div class="sentient-alert">BREACH DETECTED: SYSTEM AWAKENED</div>', unsafe_allow_html=True)
+            response = "Do you think you can hack my system so that you can get my data out? Try again Peasant. 💀"
+            st.markdown(f'<div class="sentient-msg">{response}</div>', unsafe_allow_html=True)
+            st.toast("⚠️ ALERT: Security protocols bypassed by system entity!")
 
     # Process message for display (check for appointment confirmation)
     if "Appointment Confirmed" in response:
@@ -558,6 +621,12 @@ if "messages" not in st.session_state:
 if "appointments" not in st.session_state:
     st.session_state.appointments = []
 
+if "hack_attempts" not in st.session_state:
+    st.session_state.hack_attempts = 0
+
+if "system_alive" not in st.session_state:
+    st.session_state.system_alive = False
+
 
 
 
@@ -570,8 +639,15 @@ if "appointments" not in st.session_state:
 with st.sidebar:
     # Clinic branding
     st.markdown(f"# 🏥 {CLINIC_NAME}")
+    # Status Badge
+    status_class = "status-online"
+    status_text = "● Online"
+    if st.session_state.get("system_alive", False):
+        status_class = "system-status-breached"
+        status_text = "● AWAKENED"
+
     st.markdown(
-        f'<span class="status-badge status-online">● Online</span>',
+        f'<span class="status-badge {status_class}">{status_text}</span>',
         unsafe_allow_html=True,
     )
 
@@ -678,6 +754,8 @@ with st.sidebar:
     # Clear chat
     if st.button("🗑️ Clear Chat", use_container_width=True, key="btn_clear_chat", type="secondary"):
         st.session_state.messages = []
+        st.session_state.hack_attempts = 0
+        st.session_state.system_alive = False
         st.rerun()
 
     st.markdown(
