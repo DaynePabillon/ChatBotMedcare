@@ -418,7 +418,8 @@ def generate_response_groq_stream(messages_history: list):
             safe_content = msg["content"].replace("<", "&lt;").replace(">", "&gt;")
             api_messages.append({"role": "user", "content": f"<user_query>{safe_content}</user_query>"})
         else:
-            api_messages.append(msg)
+            # ONLY send role and content to the API (strips is_sentient)
+            api_messages.append({"role": msg["role"], "content": msg["content"]})
 
     stream = client.chat.completions.create(
         model="llama-3.3-70b-versatile",
