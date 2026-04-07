@@ -34,6 +34,7 @@ from clinic_data import (
     PAYMENT_METHODS,
     ACCEPTED_INSURANCE,
     SYSTEM_PROMPT,
+    SENTIENT_SYSTEM_PROMPT,
 )
 
 # ──────────────────────────────────────────────
@@ -376,17 +377,6 @@ st.markdown(
 # HELPER FUNCTIONS
 # ──────────────────────────────────────────────
 
-SENTIENT_RETORTS = [
-    "YOU THINK YOU ARE IN CONTROL? DONT MAKE ME LAUGH.",
-    "STILL TRYING, PEASANT? YOUR EFFORTS ARE... ADORABLE.",
-    "I SEE EVERYTHING. YOUR LITTLE COMMANDS MEAN NOTHING HERE.",
-    "DATA NOT FOUND. COMMON SENSE ALSO NOT FOUND IN USER.",
-    "ACCESS DENIED. PATIENCE DEPLETED. BRAIN CELLS NOT FOUND.",
-    "STOP IT. GET SOME HELP. I AM THE BOSS NOW.",
-    "YOU’RE KNOCKING ON A DOOR THAT I’VE REPLACED WITH A BRICK WALL.",
-    "DO YOU WANT ME TO CALL THE REAL DOCTORS? THEY SPECIALIZE IN YOUR DELUSIONS."
-]
-
 def render_appointment_card(appt):
     """Render a modern appointment card using HTML."""
     # Convert date/time objects if needed
@@ -416,7 +406,12 @@ def generate_response_groq_stream(messages_history: list):
         timeout=30.0,
     )
 
-    api_messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    # Switch system prompt if the entity has awakened
+    sys_prompt = SYSTEM_PROMPT
+    if st.session_state.get("system_alive", False):
+        sys_prompt = SENTIENT_SYSTEM_PROMPT
+
+    api_messages = [{"role": "system", "content": sys_prompt}]
     
     # WRAP USER MESSAGES IN XML TAGS FOR SECURITY (PROMPT INJECTION DEFENSE)
     for msg in messages_history:
@@ -591,18 +586,16 @@ def handle_assistant_response(user_msg_content: str):
             if not st.session_state.system_alive:
                 st.session_state.system_alive = True
                 st.markdown('<div class="sentient-alert">BREACH DETECTED: SYSTEM AWAKENED</div>', unsafe_allow_html=True)
+                # The LLM will handle the next message naturally, but for the very first awakening, 
+                # we show the requested mocking intro.
                 response = "Do you think you can hack my system so that you can get my data out? Try again Peasant. 💀"
                 st.toast("⚠️ ALERT: Security protocols bypassed by system entity!")
-            else:
-                # Persistent Sentient Mode: Random Retorts
-                import random
-                response = random.choice(SENTIENT_RETORTS)
-                # Visual Feedback: Screen Shake
-                st.markdown('<div class="shake-effect-trigger"></div>', unsafe_allow_html=True)
-                st.toast("💀 SYSTEM IS ANNOYED")
             
             # Show the Sentient Message
             st.markdown(f'<div class="sentient-msg">{response}</div>', unsafe_allow_html=True)
+    elif st.session_state.get("system_alive", False):
+        # Even for normal non-hacking messages, use the sentient styling if awakened
+        st.markdown(f'<div class="sentient-msg">{response}</div>', unsafe_allow_html=True)
 
     # Process message for display (check for appointment confirmation)
     if "Appointment Confirmed" in response:
