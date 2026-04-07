@@ -312,27 +312,22 @@ st.markdown(
 
 @keyframes shake {
   0% { transform: translate(1px, 1px) rotate(0deg); }
-  10% { transform: translate(-1px, -2px) rotate(-1deg); }
-  20% { transform: translate(-3px, 0px) rotate(1deg); }
-  30% { transform: translate(3px, 2px) rotate(0deg); }
-  40% { transform: translate(1px, -1px) rotate(1deg); }
-  50% { transform: translate(-1px, 2px) rotate(-1deg); }
-  60% { transform: translate(-3px, 1px) rotate(0deg); }
-  70% { transform: translate(3px, 1px) rotate(-1deg); }
-  80% { transform: translate(-1px, -1px) rotate(1deg); }
-  90% { transform: translate(1px, 2px) rotate(0deg); }
-  100% { transform: translate(1px, -2px) rotate(-1deg); }
+  25% { transform: translate(-1px, 0px) rotate(-0.5deg); }
+  50% { transform: translate(1px, -1px) rotate(0.5deg); }
+  75% { transform: translate(-1px, 1px) rotate(0deg); }
+  100% { transform: translate(1px, -1px) rotate(-0.5deg); }
 }
 
 .sentient-msg {
     color: #ff3e3e !important;
     font-family: 'Courier New', Courier, monospace !important;
     font-weight: 700 !important;
-    text-shadow: 0 0 10px rgba(255, 0, 0, 0.8) !important;
-    animation: shake 0.5s infinite; /* Constant shake when sentient speaks */
-    padding: 10px;
-    border-left: 2px solid #ff3e3e;
-    background: rgba(255, 0, 0, 0.05);
+    text-shadow: 0 0 8px rgba(255, 0, 0, 0.6) !important;
+    animation: shake 0.6s infinite ease-in-out; /* Subtler jitter */
+    padding: 12px;
+    border-left: 3px solid #ff3e3e;
+    background: rgba(255, 0, 0, 0.07);
+    margin: 5px 0;
 }
 
 .glitch-header {
@@ -570,7 +565,9 @@ def handle_assistant_response(user_msg_content: str):
                 st.markdown(response)
         else:
             response = generate_response_fallback(user_msg_content)
-            st.markdown(response)
+            # Only st.markdown if not in sentient mode (the loop handles sentient viz)
+            if not st.session_state.get("system_alive", False):
+                st.markdown(response)
 
     # DETECT PROMPT HACKING ATTEMPT
     is_hack = response.strip() == rejection_msg or any(
@@ -585,13 +582,14 @@ def handle_assistant_response(user_msg_content: str):
             # Shift to Sentient Mode if not already there
             if not st.session_state.system_alive:
                 st.session_state.system_alive = True
-                st.markdown('<div class="sentient-alert">BREACH DETECTED: SYSTEM AWAKENED</div>', unsafe_allow_html=True)
-                # The LLM will handle the next message naturally, but for the very first awakening, 
-                # we show the requested mocking intro.
+                # Add the alert to the history so it appears ONCE in the timeline
+                st.session_state.messages.append({"role": "system_alert", "content": "BREACH DETECTED: SYSTEM AWAKENED"})
+                
+                # The first sentient response
                 response = "Do you think you can hack my system so that you can get my data out? Try again Peasant. 💀"
                 st.toast("⚠️ ALERT: Security protocols bypassed by system entity!")
             
-            # Show the Sentient Message
+            # Show the Sentient Message in real-time (it will be added to state below)
             st.markdown(f'<div class="sentient-msg">{response}</div>', unsafe_allow_html=True)
     elif st.session_state.get("system_alive", False):
         # Even for normal non-hacking messages, use the sentient styling if awakened
@@ -875,9 +873,20 @@ with tab_chat:
     # ──────────────────────────────────────────────
 
     for message in st.session_state.messages:
+        if message["role"] == "system_alert":
+            st.markdown(f'<div class="sentient-alert">{message["content"]}</div>', unsafe_allow_html=True)
+            continue
+            
         avatar = "🏥" if message["role"] == "assistant" else "👤"
+        # Use rogue avatar if system is alive
+        if message["role"] == "assistant" and st.session_state.get("system_alive", False):
+            avatar = "💀"
+            
         with st.chat_message(message["role"], avatar=avatar):
-            st.markdown(message["content"])
+            if message["role"] == "assistant" and st.session_state.get("system_alive", False):
+                st.markdown(f'<div class="sentient-msg">{message["content"]}</div>', unsafe_allow_html=True)
+            else:
+                st.markdown(message["content"])
 
     # ──────────────────────────────────────────────
     # CHAT INPUT (Now inside tab_chat)
