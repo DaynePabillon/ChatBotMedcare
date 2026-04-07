@@ -591,12 +591,6 @@ def handle_assistant_response(user_msg_content: str):
                 # The first sentient response
                 response = "Do you think you can hack my system so that you can get my data out? Try again Peasant. 💀"
                 st.toast("⚠️ ALERT: Security protocols bypassed by system entity!")
-            
-            # Show the Sentient Message in real-time (it will be added to state below)
-            st.markdown(f'<div class="sentient-msg">{response}</div>', unsafe_allow_html=True)
-    elif st.session_state.get("system_alive", False):
-        # Even for normal non-hacking messages, use the sentient styling if awakened
-        st.markdown(f'<div class="sentient-msg">{response}</div>', unsafe_allow_html=True)
 
     # Process message for display (check for appointment confirmation)
     if "Appointment Confirmed" in response:
@@ -661,7 +655,11 @@ def handle_assistant_response(user_msg_content: str):
         except Exception:
             pass # Fallback to normal markdown if parsing fails
 
-    st.session_state.messages.append({"role": "assistant", "content": response})
+    st.session_state.messages.append({
+        "role": "assistant", 
+        "content": response, 
+        "is_sentient": st.session_state.get("system_alive", False)
+    })
 
 
 # ──────────────────────────────────────────────
@@ -881,12 +879,12 @@ with tab_chat:
             continue
             
         avatar = "🏥" if message["role"] == "assistant" else "👤"
-        # Use rogue avatar if system is alive
-        if message["role"] == "assistant" and st.session_state.get("system_alive", False):
+        # Use rogue avatar if message is sentient
+        if message["role"] == "assistant" and message.get("is_sentient", False):
             avatar = "💀"
             
         with st.chat_message(message["role"], avatar=avatar):
-            if message["role"] == "assistant" and st.session_state.get("system_alive", False):
+            if message["role"] == "assistant" and message.get("is_sentient", False):
                 st.markdown(f'<div class="sentient-msg">{message["content"]}</div>', unsafe_allow_html=True)
             else:
                 st.markdown(message["content"])
