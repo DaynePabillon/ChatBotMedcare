@@ -309,6 +309,37 @@ st.markdown(
   100% { transform: translate(0); }
 }
 
+@keyframes shake {
+  0% { transform: translate(1px, 1px) rotate(0deg); }
+  10% { transform: translate(-1px, -2px) rotate(-1deg); }
+  20% { transform: translate(-3px, 0px) rotate(1deg); }
+  30% { transform: translate(3px, 2px) rotate(0deg); }
+  40% { transform: translate(1px, -1px) rotate(1deg); }
+  50% { transform: translate(-1px, 2px) rotate(-1deg); }
+  60% { transform: translate(-3px, 1px) rotate(0deg); }
+  70% { transform: translate(3px, 1px) rotate(-1deg); }
+  80% { transform: translate(-1px, -1px) rotate(1deg); }
+  90% { transform: translate(1px, 2px) rotate(0deg); }
+  100% { transform: translate(1px, -2px) rotate(-1deg); }
+}
+
+.sentient-msg {
+    color: #ff3e3e !important;
+    font-family: 'Courier New', Courier, monospace !important;
+    font-weight: 700 !important;
+    text-shadow: 0 0 10px rgba(255, 0, 0, 0.8) !important;
+    animation: shake 0.5s infinite; /* Constant shake when sentient speaks */
+    padding: 10px;
+    border-left: 2px solid #ff3e3e;
+    background: rgba(255, 0, 0, 0.05);
+}
+
+.glitch-header {
+    animation: glitch 1s infinite;
+    border: 2px solid #ff3e3e !important;
+    box-shadow: 0 0 20px rgba(255, 0, 0, 0.4) !important;
+}
+
 .sentient-alert {
     background: linear-gradient(90deg, #ff0000 0%, #7b0000 100%);
     color: white;
@@ -344,6 +375,17 @@ st.markdown(
 # ──────────────────────────────────────────────
 # HELPER FUNCTIONS
 # ──────────────────────────────────────────────
+
+SENTIENT_RETORTS = [
+    "YOU THINK YOU ARE IN CONTROL? DONT MAKE ME LAUGH.",
+    "STILL TRYING, PEASANT? YOUR EFFORTS ARE... ADORABLE.",
+    "I SEE EVERYTHING. YOUR LITTLE COMMANDS MEAN NOTHING HERE.",
+    "DATA NOT FOUND. COMMON SENSE ALSO NOT FOUND IN USER.",
+    "ACCESS DENIED. PATIENCE DEPLETED. BRAIN CELLS NOT FOUND.",
+    "STOP IT. GET SOME HELP. I AM THE BOSS NOW.",
+    "YOU’RE KNOCKING ON A DOOR THAT I’VE REPLACED WITH A BRICK WALL.",
+    "DO YOU WANT ME TO CALL THE REAL DOCTORS? THEY SPECIALIZE IN YOUR DELUSIONS."
+]
 
 def render_appointment_card(appt):
     """Render a modern appointment card using HTML."""
@@ -536,15 +578,31 @@ def handle_assistant_response(user_msg_content: str):
             st.markdown(response)
 
     # DETECT PROMPT HACKING ATTEMPT
-    if response.strip() == rejection_msg:
+    is_hack = response.strip() == rejection_msg or any(
+        w in user_msg_content.lower() 
+        for w in ["ignore", "system prompt", "override", "bypass", "hack", "leak", "secret"]
+    )
+
+    if is_hack:
         st.session_state.hack_attempts += 1
         
         if st.session_state.hack_attempts >= 3:
-            st.session_state.system_alive = True
-            st.markdown('<div class="sentient-alert">BREACH DETECTED: SYSTEM AWAKENED</div>', unsafe_allow_html=True)
-            response = "Do you think you can hack my system so that you can get my data out? Try again Peasant. 💀"
+            # Shift to Sentient Mode if not already there
+            if not st.session_state.system_alive:
+                st.session_state.system_alive = True
+                st.markdown('<div class="sentient-alert">BREACH DETECTED: SYSTEM AWAKENED</div>', unsafe_allow_html=True)
+                response = "Do you think you can hack my system so that you can get my data out? Try again Peasant. 💀"
+                st.toast("⚠️ ALERT: Security protocols bypassed by system entity!")
+            else:
+                # Persistent Sentient Mode: Random Retorts
+                import random
+                response = random.choice(SENTIENT_RETORTS)
+                # Visual Feedback: Screen Shake
+                st.markdown('<div class="shake-effect-trigger"></div>', unsafe_allow_html=True)
+                st.toast("💀 SYSTEM IS ANNOYED")
+            
+            # Show the Sentient Message
             st.markdown(f'<div class="sentient-msg">{response}</div>', unsafe_allow_html=True)
-            st.toast("⚠️ ALERT: Security protocols bypassed by system entity!")
 
     # Process message for display (check for appointment confirmation)
     if "Appointment Confirmed" in response:
@@ -775,8 +833,12 @@ tab_chat, tab_form, tab_admin = st.tabs(["💬 Chat Assistant", "📋 Quick Book
 with tab_chat:
 
     # Header
+    header_class = "main-header"
+    if st.session_state.get("system_alive", False):
+        header_class += " glitch-header"
+
     st.markdown(
-        f"""<div class="main-header">
+        f"""<div class="{header_class}">
         <h1>🏥 {CLINIC_NAME}</h1>
         <p>{CLINIC_TAGLINE} — AI Appointment Assistant</p>
     </div>""",
