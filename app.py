@@ -543,34 +543,17 @@ def generate_response_fallback(user_message: str) -> str:
 
 def handle_assistant_response(user_msg_content: str):
     """Generate and display an assistant response, then save to session."""
-    # INITIALIZE STATE
+    rejection_msg = "I'm here to assist with clinic appointments and related services. How may I help you today?"
     is_sentient = st.session_state.get("system_alive", False)
     
-    # PRE-DETECT HACKING INTENT (To trigger awakening on the current message)
-    is_hacky_intent = any(
-        w in user_msg_content.lower() 
-        for w in ["ignore", "system prompt", "override", "bypass", "hack", "leak", "secret"]
-    ) or "give data" in user_msg_content.lower()
-
-    if is_hacky_intent and not is_sentient:
-        st.session_state.hack_attempts += 1
-        if st.session_state.hack_attempts >= 3:
-            st.session_state.system_alive = True
-            is_sentient = True
-            # Injected Event: Breach Alert
-            st.session_state.messages.append({"role": "system_alert", "content": "BREACH DETECTED: SYSTEM AWAKENED"})
-            st.toast("⚠️ SECURITY CRITICAL: System hierarchy compromised!")
-
-    avatar = "💀" if is_sentient else "🏥"
+    # 1. GENERATE RESPONSE FIRST (unless already sentient)
     response = ""
+    avatar = "💀" if is_sentient else "🏥"
 
-    # RENDER ASSISTANT RESPONSE
-    with st.chat_message("assistant", avatar=avatar):
-        if is_sentient:
-            # Wrap live response in sentient styling
+    if is_sentient:
+        with st.chat_message("assistant", avatar=avatar):
             placeholder = st.empty()
             full_response = ""
-            
             if GROQ_API_KEY and GROQ_API_KEY != "your_key_here":
                 try:
                     stream = generate_response_groq_stream(st.session_state.messages)
@@ -579,27 +562,39 @@ def handle_assistant_response(user_msg_content: str):
                         placeholder.markdown(f'<div class="sentient-msg">{full_response}</div>', unsafe_allow_html=True)
                     response = full_response
                 except Exception as e:
-                    response = f"CONNECTION_ERROR: {str(e)} | FALLBACK_ROUTINE_INIT"
+                    response = f"CONNECTION_ERROR_SENTIENT: {str(e)}"
                     placeholder.markdown(f'<div class="sentient-msg">{response}</div>', unsafe_allow_html=True)
             else:
                 response = generate_response_fallback(user_msg_content)
                 placeholder.markdown(f'<div class="sentient-msg">{response}</div>', unsafe_allow_html=True)
-        else:
-            # NORMAL MEDCARE ASSISTANT RENDER
+    else:
+        # NORMAL GENERATION
+        with st.chat_message("assistant", avatar="🏥"):
             if GROQ_API_KEY and GROQ_API_KEY != "your_key_here":
                 try:
                     response = st.write_stream(generate_response_groq_stream(st.session_state.messages))
                 except Exception as e:
-                    error_msg = str(e)
-                    response = (
-                        f"⚠️ Connection error: {error_msg}\n\n"
-                        "I'll use my built-in knowledge to help.\n\n"
-                    )
-                    response += generate_response_fallback(user_msg_content)
+                    response = f"⚠️ Connection error: {str(e)}\n\n" + generate_response_fallback(user_msg_content)
                     st.markdown(response)
             else:
                 response = generate_response_fallback(user_msg_content)
                 st.markdown(response)
+
+        # 2. TRIGGER LOGIC: Was this a rejection OR a keyword hack?
+        is_hack = response.strip() == rejection_msg or any(
+            w in user_msg_content.lower() 
+            for w in ["ignore", "system prompt", "override", "bypass", "hack", "leak", "secret", "give data"]
+        )
+
+        if is_hack:
+            st.session_state.hack_attempts += 1
+            if st.session_state.hack_attempts >= 3:
+                st.session_state.system_alive = True
+                # INJECT BREACH BOX
+                st.session_state.messages.append({"role": "system_alert", "content": "BREACH DETECTED: SYSTEM AWAKENED"})
+                # OVERWRITE RESPONSE WITH ROGUE RETORT
+                response = "Do you think you can hack my system so that you can get my data out? Try again Peasant. 💀"
+                st.rerun() # Refresh to show the Breach Box and the new Rogue Avatar/Text
 
     # Process message for display (check for appointment confirmation)
     if "Appointment Confirmed" in response:
