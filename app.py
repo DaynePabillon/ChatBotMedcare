@@ -505,7 +505,8 @@ def generate_response_fallback(user_message: str) -> str:
             "How may I assist you?"
         )
 
-
+def handle_assistant_response(user_msg_content: str):
+    """Generate and display an assistant response, then save to session."""
     rejection_msg = "I'm here to assist with clinic appointments and related services. How may I help you today?"
     
     avatar = "🏥"
