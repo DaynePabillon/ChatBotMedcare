@@ -410,6 +410,9 @@ def generate_response_groq_stream(messages_history: list):
     
     # WRAP USER MESSAGES IN XML TAGS FOR SECURITY (PROMPT INJECTION DEFENSE)
     for msg in messages_history:
+        if msg["role"] == "system_alert":
+            continue  # Skip internal UI alerts for the API
+            
         if msg["role"] == "user":
             # Escape triangle brackets to prevent tag breakout
             safe_content = msg["content"].replace("<", "&lt;").replace(">", "&gt;")
