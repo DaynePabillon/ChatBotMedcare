@@ -9,6 +9,15 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 from dotenv import load_dotenv
+
+# Load environment variables IMMEDIATELY
+load_dotenv()
+
+# Map Streamlit Secrets to OS Environment (Required for Deployed Sites)
+if hasattr(st, "secrets"):
+    for key in ["LANGFUSE_PUBLIC_KEY", "LANGFUSE_SECRET_KEY", "LANGFUSE_HOST", "GROQ_API_KEY"]:
+        if key in st.secrets:
+            os.environ[key] = st.secrets[key]
 from openai import OpenAI
 import json
 try:
@@ -29,8 +38,6 @@ import database_manager as db
 # Initialize the database schema on startup
 db.init_db()
 
-# Load environment variables from .env file
-load_dotenv()
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
 
 # Fallback to Streamlit Secrets for cloud deployment
