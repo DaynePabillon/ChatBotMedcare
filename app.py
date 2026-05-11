@@ -416,6 +416,11 @@ def render_appointment_card(appt):
 # ──────────────────────────────────────────────
 # AGENTIC TOOLS (Function Calling)
 # ──────────────────────────────────────────────
+
+# Dynamic enums from clinic_data
+DOCTOR_NAMES = [d["name"] for d in DOCTORS]
+SERVICE_NAMES = [s["name"] for s in SERVICES]
+
 AGENT_TOOLS = [
     {
         "type": "function",
@@ -427,8 +432,16 @@ AGENT_TOOLS = [
                 "properties": {
                     "name": {"type": "string", "description": "Patient full name"},
                     "contact": {"type": "string", "description": "Patient contact number"},
-                    "service": {"type": "string", "description": "Clinic service to book"},
-                    "doctor": {"type": "string", "description": "Name of the doctor"},
+                    "service": {
+                        "type": "string", 
+                        "enum": SERVICE_NAMES,
+                        "description": "Clinic service to book"
+                    },
+                    "doctor": {
+                        "type": "string", 
+                        "enum": DOCTOR_NAMES,
+                        "description": "Name of the doctor. Choose based on the service specialty."
+                    },
                     "date": {"type": "string", "description": "Date of appointment (e.g., YYYY-MM-DD or readable)"},
                     "time": {"type": "string", "description": "Time of appointment (e.g., 02:00 PM)"}
                 },
@@ -513,15 +526,50 @@ def generate_response_groq_stream(messages_history: list):
             # --- EXECUTE save_appointment ---
             if function_name == "save_appointment":
                 try:
-                    db.add_appointment(
-                        function_args.get("name"), 
-                        function_args.get("contact"), 
-                        function_args.get("service"), 
-                        function_args.get("doctor"), 
-                        function_args.get("date"), 
-                        function_args.get("time")
-                    )
-                    tool_response = "DATABASE SUCCESS: Appointment has been successfully saved to SQLite. Inform the user and show the final confirmation card."
+                    # 1. Parse inputs
+                    name = function_args.get("name")
+                    contact = function_args.get("contact")
+                    service = function_args.get("service")
+                    doctor = function_args.get("doctor")
+                    date_str = function_args.get("date")
+                    time_str = function_args.get("time")
+
+                    # 2. Validation: Day of Week Availability
+                    selected_doc = next((d for d in DOCTORS if d["name"] == doctor), None)
+                    # Convert date_str to datetime object to find day of week
+                    # LLMs usually provide YYYY-MM-DD or readable strings
+                    try:
+                        # Clean up date string for parsing
+                        date_obj = None
+                        for fmt in ("%Y-%m-%d", "%B %d, %Y", "%m/%d/%Y"):
+                            try:
+                                date_obj = datetime.strptime(date_str, fmt)
+                                break
+                            except: continue
+                        
+                        if date_obj:
+                            appt_day = date_obj.strftime("%A")
+                            if selected_doc and appt_day not in selected_doc["available_days"]:
+                                tool_response = (f"REJECTED: {doctor} is NOT available on {appt_day}s. "
+                                                 f"Please inform the user and suggest their available days: "
+                                                 f"{', '.join(selected_doc['available_days'])}.")
+                            else:
+                                # 3. Validation: Past Date/Time
+                                time_obj = datetime.strptime(time_str, "%I:%M %p").time()
+                                appt_dt = datetime.combine(date_obj.date(), time_obj)
+                                
+                                if appt_dt < datetime.now():
+                                    tool_response = ("REJECTED: This appointment is in the past. "
+                                                     "Tell the user to choose a future date/time.")
+                                else:
+                                    # 4. Success: Save to DB
+                                    db.add_appointment(name, contact, service, doctor, date_obj.date(), time_str)
+                                    tool_response = "DATABASE SUCCESS: Appointment saved. Inform the user and show the confirmation card."
+                        else:
+                            tool_response = "ERROR: Date format unreadable. Ask the user to clarify the date."
+                    except Exception as parse_err:
+                        tool_response = f"ERROR: Could not validate date/time - {str(parse_err)}"
+
                 except Exception as e:
                     tool_response = f"DATABASE ERROR: {str(e)}"
                     
@@ -984,9 +1032,35 @@ with tab_form:
         with col_svc:
             service_names = [s["name"] for s in SERVICES]
             f_service = st.selectbox("Select Service", service_names)
+            
         with col_doc:
-            doctor_names = [d["name"] for d in DOCTORS]
-            f_doctor = st.selectbox("Preferred Doctor", doctor_names)
+            # Smart Filtering: Map services to doctor specialties
+            specialty_map = {
+                "General Consultation": "General Medicine",
+                "Annual Physical Exam": "General Medicine",
+                "Pediatric Consultation": "Pediatrics",
+                "Dermatology Consultation": "Dermatology",
+                "Skin Treatment / Facial": "Dermatology",
+                "Dental Cleaning": "Dentistry",
+                "Dental Filling": "Dentistry",
+                "Tooth Extraction": "Dentistry",
+                "OB-GYN Consultation": "OB-GYN",
+                "Prenatal Checkup": "OB-GYN",
+                "Internal Medicine": "Internal Medicine",
+                "ECG / Heart Screening": "Internal Medicine",
+                "Blood Test / Lab Work": "General Medicine",
+                "Vaccination": "General Medicine"
+            }
+            
+            target_specialty = specialty_map.get(f_service, "General Medicine")
+            # Filter doctors by specialty
+            filtered_doctors = [d["name"] for d in DOCTORS if d["specialty"] == target_specialty]
+            
+            # Fallback to all doctors if no match found
+            if not filtered_doctors:
+                filtered_doctors = [d["name"] for d in DOCTORS]
+                
+            f_doctor = st.selectbox("Recommended Doctor", filtered_doctors)
             
         col_date, col_time = st.columns(2)
         with col_date:
@@ -998,16 +1072,41 @@ with tab_form:
         submit_btn = st.form_submit_button("Submit Appointment", use_container_width=True)
         
         if submit_btn:
+            # 1. Basic field check
             if not f_name or not f_contact:
                 st.error("Please fill in your name and contact info.")
             else:
                 try:
-                    db.add_appointment(f_name, f_contact, f_service, f_doctor, f_date, f_time)
-                    st.success(f"✅ Appointment booked for {f_name} on {f_date} at {f_time}!")
-                    st.session_state.messages.append({"role": "assistant", "content": f"✅ **Form Submission Received:** Appointment set for {f_name} ({f_service}) with {f_doctor} on {f_date} at {f_time}."})
-                    st.rerun()
+                    # 2. Check Doctor Availability (Day of Week)
+                    selected_doc = next((d for d in DOCTORS if d["name"] == f_doctor), None)
+                    appointment_day = f_date.strftime("%A")
+                    
+                    if selected_doc and appointment_day not in selected_doc["available_days"]:
+                        st.error(f"❌ {f_doctor} is not available on {appointment_day}s. "
+                                 f"Available days: {', '.join(selected_doc['available_days'])}")
+                    
+                    # 3. Check for Past Date/Time
+                    # Combine date and time for comparison
+                    try:
+                        time_obj = datetime.strptime(f_time, "%I:%M %p").time()
+                        appt_datetime = datetime.combine(f_date, time_obj)
+                        
+                        if appt_datetime < datetime.now():
+                            st.error("❌ You cannot book an appointment for a time that has already passed.")
+                        else:
+                            # 4. Save to Database
+                            db.add_appointment(f_name, f_contact, f_service, f_doctor, f_date, f_time)
+                            st.success(f"✅ Appointment booked for {f_name} on {f_date} at {f_time}!")
+                            st.session_state.messages.append({
+                                "role": "assistant", 
+                                "content": f"✅ **Form Submission Received:** Appointment set for {f_name} ({f_service}) with {f_doctor} on {f_date} at {f_time}."
+                            })
+                            st.rerun()
+                    except Exception as time_err:
+                        st.error(f"Invalid time format: {time_err}")
+                        
                 except Exception as e:
-                    st.error(f"Error saving to database: {e}")
+                    st.error(f"Error processing appointment: {e}")
 
 with tab_admin:
     st.markdown("## 📊 Admin Dashboard")
