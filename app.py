@@ -508,12 +508,15 @@ def generate_response_groq_stream(messages_history: list):
         else:
             api_messages.append({"role": msg["role"], "content": msg["content"]})
 
+    # Add explicit tool-calling instruction to ensure the model follows schema
+    api_messages.insert(0, {"role": "system", "content": "IMPORTANT: When calling tools, you MUST provide valid JSON arguments exactly as defined in the schema. Do not add any conversational text before or after a tool call."})
+
     # Step 1: Check if the model wants to call a tool (Non-streaming)
     try:
         response = client.chat.completions.create(
             model="llama-3.3-70b-versatile",
             messages=api_messages,
-            temperature=0.3,
+            temperature=0.0, # 0.0 is best for reliable tool-calling
             tools=AGENT_TOOLS,
             tool_choice="auto",
         )
