@@ -230,6 +230,20 @@ footer { visibility: hidden; }
     margin: 1rem 0;
 }
 
+/* ── History Items ── */
+.history-item {
+    font-size: 0.75rem;
+    color: rgba(224, 230, 237, 0.6);
+    padding: 0.4rem 0.6rem;
+    border-radius: 6px;
+    margin-bottom: 0.25rem;
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
 /* ── Chat input styling ── */
 [data-testid="stChatInput"] textarea {
     border-radius: 12px !important;
@@ -852,6 +866,19 @@ with st.sidebar:
 
     st.markdown('<hr class="sidebar-divider">', unsafe_allow_html=True)
 
+    # Chat History Summary
+    st.markdown("### 💬 Conversation History")
+    if not st.session_state.messages:
+        st.info("No messages yet.")
+    else:
+        for i, msg in enumerate(st.session_state.messages[-10:]): # Show last 10
+            if msg["role"] in ["user", "assistant"]:
+                icon = "👤" if msg["role"] == "user" else "🏥"
+                text = msg["content"][:35] + "..." if len(msg["content"]) > 35 else msg["content"]
+                st.markdown(f'<div class="history-item">{icon} {text}</div>', unsafe_allow_html=True)
+
+    st.markdown('<hr class="sidebar-divider">', unsafe_allow_html=True)
+
     # Clinic Hours
     st.markdown("### 🕐 Clinic Hours")
     for day, hours in CLINIC_HOURS.items():
@@ -1015,8 +1042,51 @@ with tab_chat:
     ):
         handle_assistant_response(st.session_state.messages[-1]["content"])
 
+    # ──────────────────────────────────────────────
+    # CHAT INPUT & SCROLL UTILITIES
+    # ──────────────────────────────────────────────
+    
+    # Floating Scroll Up Button (JavaScript Injection)
+    st.components.v1.html(
+        """
+        <script>
+            const scrollUp = () => {
+                const chatContainer = window.parent.document.querySelector('.main');
+                if (chatContainer) {
+                    chatContainer.scrollBy({
+                        top: -600, // Roughly 2-3 responses
+                        behavior: 'smooth'
+                    });
+                }
+            }
+            // Create the button element if it doesn't exist
+            if (!window.parent.document.getElementById('scroll-up-btn')) {
+                const btn = window.parent.document.createElement('button');
+                btn.id = 'scroll-up-btn';
+                btn.innerHTML = '↑ Scroll Up';
+                btn.style.position = 'fixed';
+                btn.style.bottom = '100px';
+                btn.style.right = '40px';
+                btn.style.zIndex = '9999';
+                btn.style.padding = '10px 15px';
+                btn.style.backgroundColor = '#0fa68e';
+                btn.style.color = 'white';
+                btn.style.border = 'none';
+                btn.style.borderRadius = '20px';
+                btn.style.cursor = 'pointer';
+                btn.style.boxShadow = '0 4px 15px rgba(0,0,0,0.3)';
+                btn.style.fontSize = '12px';
+                btn.style.fontWeight = 'bold';
+                btn.onclick = scrollUp;
+                window.parent.document.body.appendChild(btn);
+            }
+        </script>
+        """,
+        height=0,
+    )
+
     # Handle typed messages
-    if user_input := st.chat_input("Type your message here... (e.g., 'Book me an appointment')"):
+    if user_input := st.chat_input("Type your message here..."):
         st.session_state.messages.append({"role": "user", "content": user_input})
         st.rerun()
 
