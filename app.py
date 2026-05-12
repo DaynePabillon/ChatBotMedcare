@@ -1120,25 +1120,16 @@ with tab_form:
             f_service = st.selectbox("Select Service", service_names)
             
         with col_doc:
-            # Smart Filtering: Map services to doctor specialties
-            specialty_map = {
-                "General Consultation": "General Medicine",
-                "Annual Physical Exam": "General Medicine",
-                "Pediatric Consultation": "Pediatrics",
-                "Dermatology Consultation": "Dermatology",
-                "Skin Treatment / Facial": "Dermatology",
-                "Dental Cleaning": "Dentistry",
-                "Dental Filling": "Dentistry",
-                "Tooth Extraction": "Dentistry",
-                "OB-GYN Consultation": "OB-GYN",
-                "Prenatal Checkup": "OB-GYN",
-                "Internal Medicine": "Internal Medicine",
-                "ECG / Heart Screening": "Internal Medicine",
-                "Blood Test / Lab Work": "General Medicine",
-                "Vaccination": "General Medicine"
-            }
+            # Robust Keyword Matching for Doctor Specialties
+            s_lower = f_service.lower()
+            target_specialty = "General Medicine" # Default
             
-            target_specialty = specialty_map.get(f_service, "General Medicine")
+            if "pediatric" in s_lower: target_specialty = "Pediatrics"
+            elif "derm" in s_lower or "skin" in s_lower: target_specialty = "Dermatology"
+            elif "dent" in s_lower or "tooth" in s_lower: target_specialty = "Dentistry"
+            elif "ob-gyn" in s_lower or "pre" in s_lower: target_specialty = "OB-GYN"
+            elif "intern" in s_lower or "heart" in s_lower: target_specialty = "Internal Medicine"
+            
             # Filter doctors by specialty
             filtered_doctors = [d["name"] for d in DOCTORS if d["specialty"] == target_specialty]
             
@@ -1146,8 +1137,8 @@ with tab_form:
             if not filtered_doctors:
                 filtered_doctors = [d["name"] for d in DOCTORS]
                 
-            # Use a dynamic key based on f_service to force the selectbox to update
-            f_doctor = st.selectbox("Recommended Doctor", filtered_doctors, key=f"doc_select_{f_service}")
+            # Use a dynamic key to force update, and ensure the first filtered doctor is selected
+            f_doctor = st.selectbox("Recommended Doctor", filtered_doctors, key=f"v3_doc_{f_service}")
             
         col_date, col_time = st.columns(2)
         with col_date:
