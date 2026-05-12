@@ -516,13 +516,26 @@ def generate_response_groq_stream(messages_history: list):
         response = client.chat.completions.create(
             model="llama-3.3-70b-versatile",
             messages=api_messages,
-            temperature=0.0, # 0.0 is best for reliable tool-calling
+            temperature=0.0,
             tools=AGENT_TOOLS,
             tool_choice="auto",
         )
     except Exception as e:
-        yield f"API Connection Error: {str(e)}"
-        return
+        # Graceful Fallback if the API fails or tool-calling glitches
+        if "400" in str(e) or "tool_use_failed" in str(e):
+            # If tool-calling fails, retry WITHOUT tools to get a standard text response
+            try:
+                response = client.chat.completions.create(
+                    model="llama-3.3-70b-versatile",
+                    messages=api_messages,
+                    temperature=0.5,
+                )
+            except:
+                yield "I'm sorry, I'm having trouble connecting to my knowledge base. Please try rephrasing your question."
+                return
+        else:
+            yield f"Connection Error: {str(e)}"
+            return
 
     response_message = response.choices[0].message
     tool_calls = response_message.tool_calls
