@@ -1110,81 +1110,83 @@ with tab_form:
     st.markdown("## 📋 Quick Booking Form")
     st.info("Fill out the form below to book an appointment instantly.")
     
-    with st.form("booking_form", clear_on_submit=True):
-        f_name = st.text_input("Full Name", placeholder="e.g. Juan De La Cruz")
-        f_contact = st.text_input("Contact Number", placeholder="e.g. 0917 123 4567")
+    # NOTE: We intentionally do NOT use st.form() here.
+    # st.form batches all widget changes until submit, which prevents
+    # the doctor dropdown from updating when the service is changed.
+    # Using regular widgets allows instant reactivity.
+
+    f_name = st.text_input("Full Name", placeholder="e.g. Juan De La Cruz", key="form_name")
+    f_contact = st.text_input("Contact Number", placeholder="e.g. 0917 123 4567", key="form_contact")
+    
+    col_svc, col_doc = st.columns(2)
+    with col_svc:
+        service_names = [s["name"] for s in SERVICES]
+        f_service = st.selectbox("Select Service", service_names, key="form_service")
         
-        col_svc, col_doc = st.columns(2)
-        with col_svc:
-            service_names = [s["name"] for s in SERVICES]
-            f_service = st.selectbox("Select Service", service_names)
+    with col_doc:
+        # Robust Keyword Matching for Doctor Specialties
+        s_lower = f_service.lower()
+        target_specialty = "General Medicine"  # Default
+        
+        if "pediatric" in s_lower: target_specialty = "Pediatrics"
+        elif "derm" in s_lower or "skin" in s_lower: target_specialty = "Dermatology"
+        elif "dent" in s_lower or "tooth" in s_lower: target_specialty = "Dentistry"
+        elif "ob-gyn" in s_lower or "prenatal" in s_lower: target_specialty = "OB-GYN"
+        elif "internal" in s_lower or "ecg" in s_lower or "heart" in s_lower: target_specialty = "Internal Medicine"
+        
+        # Filter doctors by specialty
+        filtered_doctors = [d["name"] for d in DOCTORS if d["specialty"] == target_specialty]
+        
+        # Fallback to all doctors if no match found
+        if not filtered_doctors:
+            filtered_doctors = [d["name"] for d in DOCTORS]
             
-        with col_doc:
-            # Robust Keyword Matching for Doctor Specialties
-            s_lower = f_service.lower()
-            target_specialty = "General Medicine" # Default
-            
-            if "pediatric" in s_lower: target_specialty = "Pediatrics"
-            elif "derm" in s_lower or "skin" in s_lower: target_specialty = "Dermatology"
-            elif "dent" in s_lower or "tooth" in s_lower: target_specialty = "Dentistry"
-            elif "ob-gyn" in s_lower or "pre" in s_lower: target_specialty = "OB-GYN"
-            elif "intern" in s_lower or "heart" in s_lower: target_specialty = "Internal Medicine"
-            
-            # Filter doctors by specialty
-            filtered_doctors = [d["name"] for d in DOCTORS if d["specialty"] == target_specialty]
-            
-            # Fallback to all doctors if no match found
-            if not filtered_doctors:
-                filtered_doctors = [d["name"] for d in DOCTORS]
+        f_doctor = st.selectbox("Recommended Doctor", filtered_doctors, key="form_doctor")
+        
+    col_date, col_time = st.columns(2)
+    with col_date:
+        f_date = st.date_input("Preferred Date", min_value=datetime.today(), key="form_date")
+    with col_time:
+        times = ["08:00 AM", "09:00 AM", "10:00 AM", "11:00 AM", "01:00 PM", "02:00 PM", "03:00 PM", "04:00 PM"]
+        f_time = st.selectbox("Preferred Time", times, key="form_time")
+        
+    submit_btn = st.button("Submit Appointment", use_container_width=True, type="primary", key="form_submit")
+    
+    if submit_btn:
+        # 1. Basic field check
+        if not f_name or not f_contact:
+            st.error("Please fill in your name and contact info.")
+        else:
+            try:
+                # 2. Check Doctor Availability (Day of Week)
+                selected_doc = next((d for d in DOCTORS if d["name"] == f_doctor), None)
+                appointment_day = f_date.strftime("%A")
                 
-            # Use a dynamic key to force update, and ensure the first filtered doctor is selected
-            f_doctor = st.selectbox("Recommended Doctor", filtered_doctors, key=f"v3_doc_{f_service}")
-            
-        col_date, col_time = st.columns(2)
-        with col_date:
-            f_date = st.date_input("Preferred Date", min_value=datetime.today())
-        with col_time:
-            times = ["08:00 AM", "09:00 AM", "10:00 AM", "11:00 AM", "01:00 PM", "02:00 PM", "03:00 PM", "04:00 PM"]
-            f_time = st.selectbox("Preferred Time", times)
-            
-        submit_btn = st.form_submit_button("Submit Appointment", use_container_width=True)
-        
-        if submit_btn:
-            # 1. Basic field check
-            if not f_name or not f_contact:
-                st.error("Please fill in your name and contact info.")
-            else:
+                if selected_doc and appointment_day not in selected_doc["available_days"]:
+                    st.error(f"❌ {f_doctor} is not available on {appointment_day}s. "
+                             f"Available days: {', '.join(selected_doc['available_days'])}")
+                
+                # 3. Check for Past Date/Time
                 try:
-                    # 2. Check Doctor Availability (Day of Week)
-                    selected_doc = next((d for d in DOCTORS if d["name"] == f_doctor), None)
-                    appointment_day = f_date.strftime("%A")
+                    time_obj = datetime.strptime(f_time, "%I:%M %p").time()
+                    appt_datetime = datetime.combine(f_date, time_obj)
                     
-                    if selected_doc and appointment_day not in selected_doc["available_days"]:
-                        st.error(f"❌ {f_doctor} is not available on {appointment_day}s. "
-                                 f"Available days: {', '.join(selected_doc['available_days'])}")
+                    if appt_datetime < datetime.now():
+                        st.error("❌ You cannot book an appointment for a time that has already passed.")
+                    else:
+                        # 4. Save to Database
+                        db.add_appointment(f_name, f_contact, f_service, f_doctor, f_date, f_time)
+                        st.success(f"✅ Appointment booked for {f_name} on {f_date} at {f_time}!")
+                        st.session_state.messages.append({
+                            "role": "assistant", 
+                            "content": f"✅ **Form Submission Received:** Appointment set for {f_name} ({f_service}) with {f_doctor} on {f_date} at {f_time}."
+                        })
+                        st.rerun()
+                except Exception as time_err:
+                    st.error(f"Invalid time format: {time_err}")
                     
-                    # 3. Check for Past Date/Time
-                    # Combine date and time for comparison
-                    try:
-                        time_obj = datetime.strptime(f_time, "%I:%M %p").time()
-                        appt_datetime = datetime.combine(f_date, time_obj)
-                        
-                        if appt_datetime < datetime.now():
-                            st.error("❌ You cannot book an appointment for a time that has already passed.")
-                        else:
-                            # 4. Save to Database
-                            db.add_appointment(f_name, f_contact, f_service, f_doctor, f_date, f_time)
-                            st.success(f"✅ Appointment booked for {f_name} on {f_date} at {f_time}!")
-                            st.session_state.messages.append({
-                                "role": "assistant", 
-                                "content": f"✅ **Form Submission Received:** Appointment set for {f_name} ({f_service}) with {f_doctor} on {f_date} at {f_time}."
-                            })
-                            st.rerun()
-                    except Exception as time_err:
-                        st.error(f"Invalid time format: {time_err}")
-                        
-                except Exception as e:
-                    st.error(f"Error processing appointment: {e}")
+            except Exception as e:
+                st.error(f"Error processing appointment: {e}")
 
 with tab_admin:
     st.markdown("## 📊 Admin Dashboard")
