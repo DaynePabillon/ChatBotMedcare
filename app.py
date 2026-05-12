@@ -1146,7 +1146,8 @@ with tab_form:
             if not filtered_doctors:
                 filtered_doctors = [d["name"] for d in DOCTORS]
                 
-            f_doctor = st.selectbox("Recommended Doctor", filtered_doctors)
+            # Use a dynamic key based on f_service to force the selectbox to update
+            f_doctor = st.selectbox("Recommended Doctor", filtered_doctors, key=f"doc_select_{f_service}")
             
         col_date, col_time = st.columns(2)
         with col_date:
